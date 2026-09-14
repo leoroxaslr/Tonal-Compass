@@ -1,0 +1,20 @@
+{
+  "name": "tonal-compass",
+  "version": "1.0.0",
+  "description": "Real-time microphone key detector using Web Audio API and Krumhansl-Kessler key profile correlation.",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "keywords": [
+    "audio",
+    "key-detection",
+    "web-audio-api",
+    "krumhansl-kessler",
+    "pitch-class-profile",
+    "chromagram",
+    "music-theory"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tonal Compass — Real-time Musical Key Detector</title>
+  <meta name="description" content="Listens through your microphone and estimates the musical key of live audio using pitch-class profiles and Krumhansl-Kessler templates.">
+  <meta name="theme-color" content="#161320">
+
+  <!-- Open Graph / Social Media -->
+  <meta property="og:title" content="Tonal Compass — Real-time Musical Key Detector">
+  <meta property="og:description" content="Microphone key detector using Web Audio API and Krumhansl-Kessler key-finding correlation algorithm.">
+  <meta property="og:type" content="website">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+  <style>
+    :root{
+      --bg:#F5F2F9;
+      --panel:#FBFAFD;
+      --ink:#211D2C;
+      --ink-dim:#5C5670;
+      --ink-faint:#8E88A3;
+      --border:#DCD5E8;
+      --border-soft:#E9E3F1;
+      --accent:#B07C2C;
+      --accent-ink:#2A1D06;
+      --accent-soft:#F1E1C3;
+      --minor:#3F7D78;
+      --minor-soft:#D8EAE6;
+      --warn:#AE5A56;
+      --warn-soft:#F3E1DF;
+      --track:#E6E0F0;
+      --shadow:0 1px 0 rgba(33,29,44,0.04);
+    }
+    @media (prefers-color-scheme: dark){
+      :root:not([data-theme="light"]){
+        --bg:#161320;
+        --panel:#1D1929;
+        --ink:#EFEBF7;
+        --ink-dim:#B0A8C7;
+        --ink-faint:#7C7495;
+        --border:#332C46;
+        --border-soft:#2A2438;
+        --accent:#E2AC5C;
+        --accent-ink:#241703;
+        --accent-soft:#3B2C10;
+        --minor:#7FC1BA;
+        --minor-soft:#173330;
+        --warn:#E38A85;
+        --warn-soft:#3A2320;
+        --track:#2A2438;
+        --shadow:0 1px 0 rgba(0,0,0,0.2);
+      }
+    }
+    :root[data-theme="dark"]{
+      --bg:#161320;
+      --panel:#1D1929;
+      --ink:#EFEBF7;
+      --ink-dim:#B0A8C7;
+      --ink-faint:#7C7495;
+      --border:#332C46;
+      --border-soft:#2A2438;
+      --accent:#E2AC5C;
+      --accent-ink:#241703;
+      --accent-soft:#3B2C10;
+      --minor:#7FC1BA;
+      --minor-soft:#173330;
+      --warn:#E38A85;
+      --warn-soft:#3A2320;
+      --track:#2A2438;
+      --shadow:0 1px 0 rgba(0,0,0,0.2);
+    }
+
+    *{box-sizing:border-box;}
+    html{color-scheme:light dark;}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--ink);
+      font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+      padding:28px 16px 40px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .wrap{
+      max-width:920px;
+      margin:0 auto;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+
+    .mono{ font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; font-variant-numeric:tabular-nums; }
+    .eyebrow{
+      font-family:"IBM Plex Mono", monospace;
+      font-size:11px;
+      letter-spacing:0.11em;
+      text-transform:uppercase;
+      color:var(--ink-faint);
+    }
+
+    /* ---- instrument shell ---- */
+    .instrument{
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+
+    header.head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:20px;
+      padding:22px 26px 20px;
+      border-bottom:1px solid var(--border-soft);
+      flex-wrap:wrap;
+    }
+    .head h1{
+      font-family:"Fraunces", Georgia, serif;
+      font-weight:600;
+      font-size:clamp(22px,3.4vw,28px);
+      margin:6px 0 6px;
+      text-wrap:balance;
+      letter-spacing:-0.01em;
+    }
+    .head p{
+      margin:0;
+      color:var(--ink-dim);
+      font-size:14px;
+      max-width:46ch;
+      line-height:1.5;
+    }
+    .head-controls{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:8px;
+      min-width:180px;
+    }
+    .status-row{
+      display:flex;
+      align-items:center;
+      gap:7px;
+      font-family:"IBM Plex Mono", monospace;
+      font-size:12px;
+      color:var(--ink-faint);
+    }
+    .status-dot{
+      width:7px; height:7px; border-radius:50%;
+      background:var(--ink-faint);
+      flex:none;
+    }
+    .status-dot.live{ background:var(--warn); animation:pulse 1.6s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce){ .status-dot.live{ animation:none; } }
+    @keyframes pulse{
+      0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(174,90,86,0.35); }
+      50%{ opacity:0.75; box-shadow:0 0 0 5px rgba(174,90,86,0); }
+    }
+
+    button.mic-btn{
+      font-family:"IBM Plex Sans", sans-serif;
+      font-weight:600;
+      font-size:14px;
+      border:1px solid var(--accent);
+      background:var(--accent);
+      color:var(--accent-ink);
+      padding:10px 18px;
+      border-radius:9px;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      transition:filter 0.15s ease, transform 0.05s ease;
+    }
+    button.mic-btn:hover{ filter:brightness(1.05); }
+    button.mic-btn:active{ transform:translateY(1px); }
+    button.mic-btn:focus-visible{ outline:2px solid var(--minor); outline-offset:2px; }
+    button.mic-btn.listening{
+      background:transparent;
+      color:var(--ink);
+      border-color:var(--border);
+    }
+    button.mic-btn .dot{
+      width:8px; height:8px; border-radius:2px; background:currentColor;
+    }
+    button.mic-btn.listening .dot{ border-radius:50%; background:var(--warn); }
+
+    button.reset-link{
+      background:none; border:none; padding:0; margin:0;
+      font-family:"IBM Plex Mono", monospace;
+      font-size:11.5px;
+      color:var(--ink-faint);
+      text-decoration:underline;
+      text-underline-offset:2px;
+      cursor:pointer;
+    }
+    button.reset-link:hover{ color:var(--ink-dim); }
+    button.reset-link:disabled{ opacity:0.4; cursor:default; text-decoration:none; }
+
+    /* ---- body grid ---- */
+    .body-grid{
+      display:grid;
+      grid-template-columns:minmax(0,300px) minmax(0,1fr);
+      gap:0;
+    }
+    @media (max-width:640px){
+      .body-grid{ grid-template-columns:1fr; }
+      .wheel-col{ border-right:none !important; border-bottom:1px solid var(--border-soft); }
+    }
+
+    .wheel-col{
+      padding:24px 20px 20px;
+      border-right:1px solid var(--border-soft);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:10px;
+    }
+    .wheel-col svg{ width:100%; max-width:280px; height:auto; overflow:visible; }
+    .wheel-legend{
+      display:flex;
+      gap:16px;
+      font-size:11px;
+      color:var(--ink-faint);
+      font-family:"IBM Plex Mono", monospace;
+    }
+    .wheel-legend span{ display:flex; align-items:center; gap:5px; }
+    .swatch{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+    .chords-block{
+      width:100%;
+      max-width:280px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding-top:14px;
+      border-top:1px solid var(--border-soft);
+    }
+    .chords-block .eyebrow{ color:var(--ink-faint); }
+    .chords-block .eyebrow span{ color:var(--ink-dim); font-weight:500; text-transform:none; letter-spacing:0; }
+    .chord-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:6px;
+    }
+    .chord-cell{
+      position:relative;
+      height:52px;
+      border:1px solid var(--border-soft);
+      border-radius:7px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:3px;
+      background:var(--panel);
+    }
+    .chord-cell .fill{
+      position:absolute; left:0; right:0; bottom:0;
+      height:0%;
+      background:var(--ink-faint);
+      opacity:0.22;
+      transition:height 0.15s ease, background-color 0.2s ease, opacity 0.2s ease;
+    }
+    .chord-cell .roman{
+      position:relative; z-index:1;
+      font-family:"IBM Plex Mono", monospace;
+      font-size:9.5px;
+      letter-spacing:0.02em;
+      color:var(--ink-faint);
+    }
+    .chord-cell .cname{
+      position:relative; z-index:1;
+      font-family:"IBM Plex Mono", monospace;
+      font-size:14px;
+      font-weight:600;
+      color:var(--ink-dim);
+    }
+    .chord-cell.top{ border-width:2px; }
+    .chord-cell.top .cname{ color:var(--ink); }
+    .chord-cell.top.maj{ border-color:var(--accent); }
+    .chord-cell.top.min{ border-color:var(--minor); }
+    .chord-cell.top.dim{ border-color:var(--warn); }
+
+    .read-col{
+      padding:24px 26px 22px;
+      display:flex;
+      flex-direction:column;
+      gap:20px;
+      min-width:0;
+    }
+
+    .estimate-block .eyebrow{ margin-bottom:4px; }
+    .key-name{
+      font-family:"Fraunces", Georgia, serif;
+      font-weight:700;
+      font-style:italic;
+      font-size:clamp(34px,6vw,46px);
+      line-height:1.05;
+      letter-spacing:-0.01em;
+      text-wrap:balance;
+      color:var(--ink);
+    }
+    .key-name.dim{ color:var(--ink-faint); font-style:normal; }
+    .live-line{
+      margin-top:6px;
+      font-size:13.5px;
+      color:var(--ink-dim);
+      display:flex;
+      align-items:baseline;
+      gap:6px;
+      flex-wrap:wrap;
+    }
+    .live-line b{ color:var(--ink); font-weight:600; }
+
+    .corr-bar-row{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .corr-track{
+      flex:1;
+      height:6px;
+      background:var(--track);
+      border-radius:4px;
+      position:relative;
+      overflow:hidden;
+    }
+    .corr-fill{
+      position:absolute; inset:0 auto 0 0;
+      width:0%;
+      background:var(--accent);
+      border-radius:4px;
+      transition:width 0.25s ease, background-color 0.25s ease;
+    }
+    .corr-ref{
+      position:absolute; top:-2px; bottom:-2px; width:1px;
+      background:var(--ink-faint);
+      left:60%;
+      opacity:0.55;
+    }
+    .corr-val{ font-size:12px; color:var(--ink-faint); width:3.4em; text-align:right; }
+
+    .confidence-row{
+      display:flex;
+      align-items:baseline;
+      gap:8px;
+      font-size:12px;
+      color:var(--ink-faint);
+    }
+    .confidence-tag{
+      font-family:"IBM Plex Mono", monospace;
+      font-size:10.5px;
+      letter-spacing:0.05em;
+      padding:2px 8px;
+      border-radius:20px;
+      text-transform:uppercase;
+    }
+    .confidence-tag.strong{ background:var(--minor-soft); color:var(--minor); }
+    .confidence-tag.moderate{ background:var(--accent-soft); color:var(--accent-ink); }
+    .confidence-tag.ambiguous,
+    .confidence-tag.low{ background:var(--warn-soft); color:var(--warn); }
+
+    .relative-note{
+      display:none;
+      font-size:12.5px;
+      line-height:1.55;
+      color:var(--ink-dim);
+      background:var(--warn-soft);
+      border-left:3px solid var(--warn);
+      padding:9px 12px;
+      border-radius:0 6px 6px 0;
+    }
+    .relative-note.show{ display:block; }
+    .relative-note b{ color:var(--ink); }
+
+    .candidates{ display:flex; flex-direction:column; gap:0; border-top:1px solid var(--border-soft); }
+    .cand-row{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 0;
+      border-bottom:1px solid var(--border-soft);
+      font-size:13.5px;
+    }
+    .cand-rank{ color:var(--ink-faint); width:1.4em; font-size:12px; }
+    .cand-mode-tag{
+      font-size:10px;
+      font-family:"IBM Plex Mono", monospace;
+      letter-spacing:0.06em;
+      padding:1px 6px;
+      border-radius:20px;
+      text-transform:uppercase;
+    }
+    .cand-mode-tag.major{ background:var(--accent-soft); color:var(--accent-ink); }
+    .cand-mode-tag.minor{ background:var(--minor-soft); color:var(--minor); }
+    .cand-name{ flex:1; }
+    .cand-corr{ color:var(--ink-faint); font-size:12px; }
+    .play-btn{
+      flex:none;
+      width:23px; height:23px;
+      border-radius:50%;
+      border:1px solid var(--border);
+      background:var(--panel);
+      color:var(--ink-dim);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      padding:0;
+      font-size:0;
+      transition:background-color 0.15s ease, color 0.15s ease, transform 0.05s ease, border-color 0.15s ease;
+    }
+    .play-btn svg{ width:8px; height:8px; margin-left:1px; }
+    .play-btn:hover{ background:var(--track); color:var(--ink); }
+    .play-btn:active{ transform:scale(0.9); }
+    .play-btn.playing{ background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+    .play-btn:focus-visible{ outline:2px solid var(--minor); outline-offset:2px; }
+
+    .strip{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:18px;
+      padding:16px 26px 20px;
+      border-top:1px solid var(--border-soft);
+    }
+    @media (max-width:560px){ .strip{ grid-template-columns:1fr; } }
+
+    .meter-label{ display:flex; justify-content:space-between; font-size:11px; color:var(--ink-faint); margin-bottom:6px; }
+    .level-track{
+      height:8px; background:var(--track); border-radius:4px; overflow:hidden; position:relative;
+    }
+    .level-fill{
+      height:100%; width:0%;
+      background:linear-gradient(90deg, var(--minor), var(--accent) 78%, var(--warn) 100%);
+      border-radius:4px;
+      transition:width 0.08s linear;
+    }
+
+    .sparkline{ display:flex; gap:2px; align-items:flex-end; height:18px; }
+    .spark-tick{ flex:1; min-width:2px; border-radius:1px; background:var(--track); height:6px; align-self:center; }
+
+    .footnote{
+      padding:16px 26px 22px;
+      border-top:1px solid var(--border-soft);
+      font-size:12px;
+      line-height:1.6;
+      color:var(--ink-faint);
+    }
+    .footnote strong{ color:var(--ink-dim); font-weight:600; }
+
+    .error-msg{
+      font-size:12.5px;
+      color:var(--warn);
+      max-width:32ch;
+      text-align:right;
+    }
+    .embed-hint{
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:2px;
+    }
+    .copy-status{
+      font-size:11px;
+      color:var(--ink-faint);
+      max-width:24ch;
+      text-align:right;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="instrument">
+      <header class="head">
+        <div>
+          <div class="eyebrow">Microphone key detector</div>
+          <h1>Tonal Compass</h1>
+          <p>Listens through your microphone and estimates the musical key of whatever's playing, by matching a live pitch-class profile against the Krumhansl&ndash;Kessler tonal templates.</p>
+        </div>
+        <div class="head-controls">
+          <button class="mic-btn" id="micBtn" type="button" aria-pressed="false">
+            <span class="dot" aria-hidden="true"></span>
+            <span id="micBtnLabel">Start listening</span>
+          </button>
+          <div class="status-row">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="statusText">Idle &middot; no signal</span>
+          </div>
+          <div class="embed-hint" id="embedHint" hidden>
+            <button type="button" class="reset-link" id="copyLinkBtn">copy link to paste in a new tab</button>
+            <div class="mono copy-status" id="copyLinkStatus"></div>
+          </div>
+          <div id="errorMsg" class="error-msg" hidden></div>
+        </div>
+      </header>
+
+      <div class="body-grid">
+        <div class="wheel-col">
+          <svg viewBox="0 0 320 320" role="img" aria-label="Circle of fifths showing live pitch-class energy">
+            <g id="wheelRoot"></g>
+          </svg>
+          <div class="wheel-legend">
+            <span><span class="swatch" style="background:var(--accent)"></span> major root</span>
+            <span><span class="swatch" style="background:var(--minor)"></span> minor root</span>
+          </div>
+
+          <div class="chords-block">
+            <div class="eyebrow">Diatonic chords &middot; <span id="chordsKeyLabel">&mdash;</span></div>
+            <div class="chord-grid" id="chordGrid"></div>
+          </div>
+        </div>
+
+        <div class="read-col">
+          <div class="estimate-block">
+            <div class="eyebrow">Stable estimate &middot; ~20s window</div>
+            <div class="key-name dim" id="stableKey">&mdash;</div>
+            <div class="live-line">Live guess: <b id="liveKey">&mdash;</b><span id="liveCorrWrap">&nbsp;&middot; r&nbsp;<span class="mono" id="liveCorr">0.00</span></span></div>
+          </div>
+
+          <div class="corr-bar-row" aria-hidden="true">
+            <div class="corr-track">
+              <div class="corr-ref"></div>
+              <div class="corr-fill" id="corrFill"></div>
+            </div>
+            <div class="corr-val mono" id="corrValLabel">0.00</div>
+          </div>
+
+          <div class="confidence-row">
+            <span>Confidence</span>
+            <span class="confidence-tag" id="confidenceTag">&mdash;</span>
+            <span class="mono" id="confidenceGap"></span>
+          </div>
+
+          <div class="relative-note" id="relativeNote"></div>
+
+          <div class="candidates" id="candidates"></div>
+          <div class="mono copy-status" id="playStatus" style="text-align:left;max-width:none;" hidden></div>
+        </div>
+      </div>
+
+      <div class="strip">
+        <div>
+          <div class="meter-label"><span>Input level</span><span class="mono" id="levelDb">&minus;&infin; dB</span></div>
+          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
+        </div>
+        <div>
+          <div class="meter-label"><span>Live guess, last ~20s</span><span></span></div>
+          <div class="sparkline" id="sparkline"></div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        <strong>How to read it.</strong> The stable estimate is the most common live guess over the trailing window &mdash; trust it over the live guess, which can jump around during intros, breakdowns, or key changes. Check the confidence tag next to the correlation bar: <em>strong</em> means the profile match is clear, while <em>ambiguous</em> or <em>low signal</em> means don't trust it yet. Press &#9654; next to any candidate to hear its tonic triad and compare by ear against the song &mdash; the real giveaway is which chord the song actually resolves to, especially when the top two candidates are relative major/minor (they share every note, so the math alone can't always separate them). The chord grid on the left shows the seven diatonic chords of the stable estimate and lights up whichever one currently matches the audio best &mdash; if the highlight keeps landing on chords from that set as the song plays, that's good independent confirmation of the key. Works best on tonal, harmonically rich audio (full mixes, chords, sustained notes); solo drums or a single melodic line can mislead it. Give it 10&ndash;15 seconds on a new song before reading much into the result. Nothing recorded here leaves your browser.
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+
+    /* ---------- key-finding core (Krumhansl-Kessler correlation) ---------- */
+    var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+    var MAJOR_PROFILE = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+    var MINOR_PROFILE = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+    function mean(a){ var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return s/a.length; }
+    function pearson(a,b){
+      var ma=mean(a), mb=mean(b), num=0, da=0, db=0;
+      for(var i=0;i<a.length;i++){
+        var xa=a[i]-ma, xb=b[i]-mb;
+        num+=xa*xb; da+=xa*xa; db+=xb*xb;
+      }
+      var denom=Math.sqrt(da*db);
+      return denom===0 ? 0 : num/denom;
+    }
+    function rotate(profile, root){
+      var out=new Array(12);
+      for(var i=0;i<12;i++) out[(i+root)%12]=profile[i];
+      return out;
+    }
+    function estimateKey(chroma){
+      var results=[];
+      for(var root=0; root<12; root++){
+        results.push({root:root, mode:'major', name:NOTE_NAMES[root]+' major', corr:pearson(chroma, rotate(MAJOR_PROFILE, root))});
+        results.push({root:root, mode:'minor', name:NOTE_NAMES[root]+' minor', corr:pearson(chroma, rotate(MINOR_PROFILE, root))});
+      }
+      results.sort(function(a,b){ return b.corr-a.corr; });
+      return results;
+    }
+
+    /* ---------- diatonic chords for the current key ---------- */
+    var MAJOR_STEPS = [0,2,4,5,7,9,11];
+    var MAJOR_QUAL  = ['maj','min','min','maj','maj','min','dim'];
+    var MAJOR_ROMAN = ['I','ii','iii','IV','V','vi','vii°'];
+
+    var MINOR_STEPS = [0,2,3,5,7,8,10]; // natural minor
+    var MINOR_QUAL  = ['min','dim','maj','min','min','maj','maj'];
+    var MINOR_ROMAN = ['i','ii°','III','iv','v','VI','VII'];
+
+    function chordName(rootPc, quality){
+      var base = NOTE_NAMES[rootPc];
+      if(quality==='maj') return base;
+      if(quality==='min') return base+'m';
+      return base+'°';
+    }
+
+    function diatonicChords(keyRoot, keyMode){
+      var steps = keyMode==='minor' ? MINOR_STEPS : MAJOR_STEPS;
+      var quals = keyMode==='minor' ? MINOR_QUAL : MAJOR_QUAL;
+      var romans = keyMode==='minor' ? MINOR_ROMAN : MAJOR_ROMAN;
+      var out = [];
+      for(var i=0;i<7;i++){
+        var root = (keyRoot + steps[i]) % 12;
+        out.push({ root:root, quality:quals[i], roman:romans[i], name:chordName(root, quals[i]) });
+      }
+      return out;
+    }
+
+    function chordMatchScore(chromaVec, chord){
+      var third = chord.quality==='maj' ? 4 : 3;
+      var fifth = chord.quality==='dim' ? 6 : 7;
+      var r = chromaVec[chord.root] || 0;
+      var t = chromaVec[(chord.root+third)%12] || 0;
+      var f = chromaVec[(chord.root+fifth)%12] || 0;
+      return r*1.0 + t*0.85 + f*0.9;
+    }
+
+    var chordGridEl = document.getElementById('chordGrid');
+    var chordsKeyLabelEl = document.getElementById('chordsKeyLabel');
+    var chordCells = [];
+
+    (function buildChordGrid(){
+      for(var i=0;i<7;i++){
+        var cell = document.createElement('div');
+        cell.className = 'chord-cell';
+        var fill = document.createElement('div');
+        fill.className = 'fill';
+        var roman = document.createElement('div');
+        roman.className = 'roman';
+        var cname = document.createElement('div');
+        cname.className = 'cname';
+        cell.appendChild(fill);
+        cell.appendChild(roman);
+        cell.appendChild(cname);
+        chordGridEl.appendChild(cell);
+        chordCells.push({ el:cell, fill:fill, roman:roman, cname:cname, chord:null });
+      }
+    })();
+
+    function setChordGridKey(keyRoot, keyMode, keyLabel){
+      var chords = diatonicChords(keyRoot, keyMode);
+      for(var i=0;i<7;i++){
+        var c = chords[i];
+        chordCells[i].chord = c;
+        chordCells[i].roman.textContent = c.roman;
+        chordCells[i].cname.textContent = c.name;
+        chordCells[i].el.classList.remove('top','maj','min','dim');
+        chordCells[i].fill.style.height = '0%';
+      }
+      chordsKeyLabelEl.textContent = keyLabel;
+    }
+
+    function updateChordHighlight(chromaVec){
+      var total = 0;
+      for(var i=0;i<12;i++) total += chromaVec[i];
+      var scores = chordCells.map(function(c){ return c.chord ? chordMatchScore(chromaVec, c.chord) : 0; });
+      var maxScore = Math.max.apply(null, scores);
+      for(var j=0;j<chordCells.length;j++){
+        var cell = chordCells[j];
+        var norm = maxScore > 0 ? scores[j]/maxScore : 0;
+        cell.fill.style.height = (norm*100)+'%';
+        var isTop = (total > 0.02) && (scores[j] === maxScore) && norm > 0;
+        cell.el.classList.toggle('top', isTop);
+        cell.el.classList.remove('maj','min','dim');
+        if(isTop) cell.el.classList.add(cell.chord.quality);
+        cell.fill.style.background = isTop
+          ? (cell.chord.quality==='maj' ? 'var(--accent)' : cell.chord.quality==='min' ? 'var(--minor)' : 'var(--warn)')
+          : 'var(--ink-faint)';
+        cell.fill.style.opacity = isTop ? '0.85' : String(0.15 + 0.35*norm);
+      }
+    }
+
+    /* ---------- circle-of-fifths wheel geometry ---------- */
+    // order starting at C, clockwise by fifths
+    var FIFTHS_ORDER = [0,7,2,9,4,11,6,1,8,3,10,5];
+    var MAJOR_LABEL = {0:'C',7:'G',2:'D',9:'A',4:'E',11:'B',6:'F#/Gb',1:'Db',8:'Ab',3:'Eb',10:'Bb',5:'F'};
+    var MINOR_LABEL = {0:'Am',7:'Em',2:'Bm',9:'F#m',4:'C#m',11:'G#m',6:'D#m',1:'Bbm',8:'Fm',3:'Cm',10:'Gm',5:'Dm'};
+
+    var CX=160, CY=160, R_BAR_MIN=72, R_BAR_MAX=138, R_MAJOR_LABEL=152, R_MINOR_LABEL=50;
+
+    var svgNS = "http://www.w3.org/2000/svg";
+    var wheelRoot = document.getElementById('wheelRoot');
+    var bars = {}, majorLabels = {}, minorLabels = {};
+
+    function polar(r, angleDeg){
+      var a = (angleDeg-90) * Math.PI/180;
+      return [CX + r*Math.cos(a), CY + r*Math.sin(a)];
+    }
+
+    (function buildWheel(){
+      var track = document.createElementNS(svgNS,'circle');
+      track.setAttribute('cx',CX); track.setAttribute('cy',CY); track.setAttribute('r',R_BAR_MIN);
+      track.setAttribute('fill','none'); track.setAttribute('stroke','var(--border-soft)'); track.setAttribute('stroke-width','1');
+      wheelRoot.appendChild(track);
+
+      var outer = document.createElementNS(svgNS,'circle');
+      outer.setAttribute('cx',CX); outer.setAttribute('cy',CY); outer.setAttribute('r',R_BAR_MAX);
+      outer.setAttribute('fill','none'); outer.setAttribute('stroke','var(--border-soft)'); outer.setAttribute('stroke-width','1');
+      wheelRoot.appendChild(outer);
+
+      for(var i=0;i<12;i++){
+        var pc = FIFTHS_ORDER[i];
+        var angle = i*30;
+
+        var p0 = polar(R_BAR_MIN, angle);
+        var bar = document.createElementNS(svgNS,'line');
+        bar.setAttribute('x1',p0[0]); bar.setAttribute('y1',p0[1]);
+        bar.setAttribute('x2',p0[0]); bar.setAttribute('y2',p0[1]);
+        bar.setAttribute('stroke','var(--ink-faint)');
+        bar.setAttribute('stroke-width','10');
+        bar.setAttribute('stroke-linecap','round');
+        bar.setAttribute('opacity','0.55');
+        wheelRoot.appendChild(bar);
+        bars[pc] = {el:bar, angle:angle};
+
+        var lp = polar(R_MAJOR_LABEL, angle);
+        var majorText = document.createElementNS(svgNS,'text');
+        majorText.setAttribute('x', lp[0]); majorText.setAttribute('y', lp[1]);
+        majorText.setAttribute('text-anchor','middle');
+        majorText.setAttribute('dominant-baseline','middle');
+        majorText.setAttribute('font-family',"'IBM Plex Mono', monospace");
+        majorText.setAttribute('font-size','13');
+        majorText.setAttribute('font-weight','500');
+        majorText.setAttribute('fill','var(--ink-dim)');
+        majorText.textContent = MAJOR_LABEL[pc];
+        wheelRoot.appendChild(majorText);
+        majorLabels[pc] = majorText;
+
+        var mp = polar(R_MINOR_LABEL, angle);
+        var minorText = document.createElementNS(svgNS,'text');
+        minorText.setAttribute('x', mp[0]); minorText.setAttribute('y', mp[1]);
+        minorText.setAttribute('text-anchor','middle');
+        minorText.setAttribute('dominant-baseline','middle');
+        minorText.setAttribute('font-family',"'IBM Plex Mono', monospace");
+        minorText.setAttribute('font-size','9');
+        minorText.setAttribute('fill','var(--ink-faint)');
+        minorText.textContent = MINOR_LABEL[pc];
+        wheelRoot.appendChild(minorText);
+        minorLabels[pc] = minorText;
+      }
+    })();
+
+    function updateWheel(chroma, topRoot, topMode){
+      var maxV = Math.max.apply(null, chroma);
+      var norm = maxV > 0 ? chroma.map(function(v){ return v/maxV; }) : chroma.map(function(){ return 0; });
+      for(var pc=0; pc<12; pc++){
+        var b = bars[pc];
+        var len = norm[pc] * (R_BAR_MAX - R_BAR_MIN);
+        var p1 = polar(R_BAR_MIN + len, b.angle);
+        b.el.setAttribute('x2', p1[0]);
+        b.el.setAttribute('y2', p1[1]);
+        var isTop = (pc === topRoot);
+        b.el.setAttribute('stroke', isTop ? (topMode==='major' ? 'var(--accent)' : 'var(--minor)') : 'var(--ink-faint)');
+        b.el.setAttribute('opacity', isTop ? '1' : (0.35 + 0.4*norm[pc]));
+        majorLabels[pc].setAttribute('fill', (isTop && topMode==='major') ? 'var(--accent)' : 'var(--ink-dim)');
+        majorLabels[pc].setAttribute('font-weight', (isTop && topMode==='major') ? '700' : '500');
+        minorLabels[pc].setAttribute('fill', (isTop && topMode==='minor') ? 'var(--minor)' : 'var(--ink-faint)');
+        minorLabels[pc].setAttribute('font-weight', (isTop && topMode==='minor') ? '700' : '400');
+      }
+    }
+
+    /* ---------- audio + chroma engine ---------- */
+    var audioCtx=null, analyser=null, source=null, stream=null, rafId=null;
+    var freqData=null, timeData=null;
+    var chroma = new Array(12).fill(0);
+    var running = false;
+    var lastFrameT = 0;
+    var lastUiT = 0;
+    var lastHistoryT = 0;
+    var history = []; // {name, root, mode, corr}
+    var stableKeyInfo = null;
+    var HISTORY_MAX = 40; // ~20s at 500ms
+
+    var NOISE_FLOOR_DB = -95;
+    var MIN_FREQ = 55;   // ~A1
+    var MAX_FREQ = 5000;
+    var DECAY_HALF_LIFE_MS = 2200;
+
+    var isEmbedded = false;
+    try{ isEmbedded = (window.top !== window.self); } catch(e){ isEmbedded = true; }
+
+    var micBtn = document.getElementById('micBtn');
+    var micBtnLabel = document.getElementById('micBtnLabel');
+    var statusDot = document.getElementById('statusDot');
+    var statusText = document.getElementById('statusText');
+    var errorMsg = document.getElementById('errorMsg');
+    var embedHint = document.getElementById('embedHint');
+    var copyLinkBtn = document.getElementById('copyLinkBtn');
+    var copyLinkStatus = document.getElementById('copyLinkStatus');
+    var stableKeyEl = document.getElementById('stableKey');
+    var liveKeyEl = document.getElementById('liveKey');
+    var liveCorrEl = document.getElementById('liveCorr');
+    var corrFillEl = document.getElementById('corrFill');
+    var corrValLabelEl = document.getElementById('corrValLabel');
+    var confidenceTagEl = document.getElementById('confidenceTag');
+    var confidenceGapEl = document.getElementById('confidenceGap');
+    var relativeNoteEl = document.getElementById('relativeNote');
+    var candidatesEl = document.getElementById('candidates');
+    var levelFillEl = document.getElementById('levelFill');
+    var levelDbEl = document.getElementById('levelDb');
+    var sparklineEl = document.getElementById('sparkline');
+
+    // pre-build sparkline ticks
+    var sparkTicks = [];
+    for(var s=0; s<HISTORY_MAX; s++){
+      var t = document.createElement('div');
+      t.className = 'spark-tick';
+      sparklineEl.appendChild(t);
+      sparkTicks.push(t);
+    }
+
+    function setStatus(text, live){
+      statusText.textContent = text;
+      statusDot.classList.toggle('live', !!live);
+    }
+
+    function showError(msg){
+      errorMsg.hidden = false;
+      errorMsg.textContent = msg;
+    }
+    function clearError(){ errorMsg.hidden = true; errorMsg.textContent = ''; }
+
+    var PLAY_ICON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0 L9 5 L1 10 Z" fill="currentColor"/></svg>';
+
+    function renderCandidates(top3){
+      candidatesEl.innerHTML = '';
+      top3.forEach(function(c, idx){
+        var row = document.createElement('div');
+        row.className = 'cand-row';
+        row.innerHTML =
+          '<span class="cand-rank mono">'+(idx+1)+'</span>' +
+          '<span class="cand-mode-tag '+c.mode+'">'+c.mode+'</span>' +
+          '<span class="cand-name">'+c.name.replace(' major','').replace(' minor','')+'</span>' +
+          '<span class="cand-corr mono">r '+c.corr.toFixed(2)+'</span>' +
+          '<button type="button" class="play-btn" data-root="'+c.root+'" data-mode="'+c.mode+'" aria-label="Play '+c.name+' triad to compare by ear">'+PLAY_ICON+'</button>';
+        candidatesEl.appendChild(row);
+      });
+    }
+
+    candidatesEl.addEventListener('click', function(e){
+      var btn = e.target.closest ? e.target.closest('.play-btn') : null;
+      if(!btn) return;
+      playTonic(parseInt(btn.getAttribute('data-root'),10), btn.getAttribute('data-mode'), btn);
+    });
+
+    /* ---------- verify-by-ear: reference triad playback ---------- */
+    var sfxCtx = null;
+    var playStatusEl = document.getElementById('playStatus');
+
+    function reportPlayError(msg){
+      if(!playStatusEl) return;
+      playStatusEl.hidden = false;
+      playStatusEl.textContent = msg;
+      playStatusEl.style.color = 'var(--warn)';
+    }
+    function clearPlayError(){
+      if(!playStatusEl) return;
+      playStatusEl.hidden = true;
+      playStatusEl.textContent = '';
+    }
+
+    function getSfxCtx(){
+      if(!sfxCtx){
+        var Ctor = window.AudioContext || window.webkitAudioContext;
+        if(!Ctor) throw new Error('Web Audio API is not available in this browser.');
+        sfxCtx = new Ctor();
+      }
+      return sfxCtx;
+    }
+
+    function scheduleTriad(ctx, root, mode, btn){
+      var now = ctx.currentTime;
+      var third = mode === 'minor' ? 3 : 4;
+      var midiNotes = [root+48, root+third+48, root+7+48]; // rooted near C3
+
+      var master = ctx.createGain();
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.28, now+0.04);
+      master.gain.exponentialRampToValueAtTime(0.18, now+0.3);
+      master.gain.exponentialRampToValueAtTime(0.0001, now+1.3);
+      var filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 2200;
+      master.connect(filter);
+      filter.connect(ctx.destination);
+
+      midiNotes.forEach(function(midi, i){
+        var freq = 440 * Math.pow(2, (midi-69)/12);
+        var osc = ctx.createOscillator();
+        osc.type = i===0 ? 'triangle' : 'sine';
+        osc.frequency.value = freq;
+        var voiceGain = ctx.createGain();
+        voiceGain.gain.value = i===0 ? 1 : 0.55;
+        osc.connect(voiceGain);
+        voiceGain.connect(master);
+        osc.start(now);
+        osc.stop(now+1.35);
+      });
+
+      if(btn){
+        btn.classList.add('playing');
+        window.setTimeout(function(){ btn.classList.remove('playing'); }, 1300);
+      }
+    }
+
+    function playTonic(root, mode, btn){
+      clearPlayError();
+      var ctx;
+      try{
+        ctx = getSfxCtx();
+      } catch(e){
+        reportPlayError('Couldn’t start audio playback: ' + (e && e.message ? e.message : e));
+        return;
+      }
+
+      if(ctx.state === 'suspended'){
+        ctx.resume().then(function(){
+          try{ scheduleTriad(ctx, root, mode, btn); }
+          catch(e){ reportPlayError('Couldn’t play the triad: ' + (e && e.message ? e.message : e)); }
+        }).catch(function(e){
+          reportPlayError('Audio was blocked by the browser: ' + (e && e.message ? e.message : e));
+        });
+        return;
+      }
+
+      try{
+        scheduleTriad(ctx, root, mode, btn);
+      } catch(e){
+        reportPlayError('Couldn’t play the triad: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    /* ---------- confidence + relative-key ambiguity check ---------- */
+    function updateConfidence(ranked){
+      var top = ranked[0], second = ranked[1];
+      var gap = top.corr - second.corr;
+
+      var tag, label;
+      if(top.corr < 0.35){ tag='low'; label='low signal'; }
+      else if(gap < 0.05){ tag='ambiguous'; label='ambiguous'; }
+      else if(gap < 0.15){ tag='moderate'; label='moderate'; }
+      else { tag='strong'; label='strong'; }
+
+      confidenceTagEl.className = 'confidence-tag '+tag;
+      confidenceTagEl.textContent = label;
+      confidenceGapEl.textContent = 'gap r '+gap.toFixed(2);
+
+      // relative major/minor share every pitch class, so the algorithm alone
+      // often can't separate them — flag it explicitly rather than pretend.
+      var isRelative = top.mode !== second.mode && (
+        (top.mode==='major' && top.root === (second.root+3)%12) ||
+        (top.mode==='minor' && second.root === (top.root+3)%12)
+      );
+
+      if(isRelative && gap < 0.2){
+        relativeNoteEl.classList.add('show');
+        relativeNoteEl.innerHTML = '<b>'+top.name+'</b> and <b>'+second.name+'</b> share every note, so this analysis alone can’t always tell them apart. Press ▶ on each below and listen for which chord the song actually resolves to — that’s the tonic.';
+      } else {
+        relativeNoteEl.classList.remove('show');
+        relativeNoteEl.innerHTML = '';
+      }
+    }
+
+    function modeOfHistory(){
+      if(history.length===0) return null;
+      var counts = {}, reps = {};
+      history.forEach(function(h){
+        counts[h.name] = (counts[h.name]||0)+1;
+        reps[h.name] = h;
+      });
+      var best=null, bestN=-1;
+      Object.keys(counts).forEach(function(name){
+        if(counts[name] > bestN){ bestN = counts[name]; best = name; }
+      });
+      return reps[best]; // {root, mode, name, corr}
+    }
+
+    function pitchClassFromFreq(freq){
+      var midi = 69 + 12*Math.log2(freq/440);
+      var pc = Math.round(midi) % 12;
+      return (pc+12)%12;
+    }
+
+    function frame(now){
+      if(!running) return;
+      rafId = requestAnimationFrame(frame);
+
+      var dt = lastFrameT ? (now-lastFrameT) : 16;
+      lastFrameT = now;
+
+      // decay
+      var decay = Math.pow(0.5, dt/DECAY_HALF_LIFE_MS);
+      for(var i=0;i<12;i++) chroma[i]*=decay;
+
+      analyser.getFloatFrequencyData(freqData);
+      var sampleRate = audioCtx.sampleRate;
+      var binHz = sampleRate/analyser.fftSize;
+      var startBin = Math.max(1, Math.floor(MIN_FREQ/binHz));
+      var endBin = Math.min(freqData.length-1, Math.ceil(MAX_FREQ/binHz));
+
+      for(var b=startBin; b<=endBin; b++){
+        var db = freqData[b];
+        if(db < NOISE_FLOOR_DB) continue;
+        var weight = (db - NOISE_FLOOR_DB);
+        var freq = b*binHz;
+        var pc = pitchClassFromFreq(freq);
+        chroma[pc] += weight*weight*0.00025;
+      }
+
+      // input level (time domain RMS)
+      analyser.getFloatTimeDomainData(timeData);
+      var sumSq=0;
+      for(var t=0;t<timeData.length;t++) sumSq += timeData[t]*timeData[t];
+      var rms = Math.sqrt(sumSq/timeData.length);
+      var db2 = rms>0 ? 20*Math.log10(rms) : -100;
+      var levelPct = Math.max(0, Math.min(100, (db2+60)/60*100));
+      levelFillEl.style.width = levelPct+'%';
+      levelDbEl.textContent = (db2 <= -99 ? '−∞' : db2.toFixed(0)) + ' dB';
+
+      var ranked = estimateKey(chroma);
+      var top = ranked[0];
+
+      updateWheel(chroma, top.root, top.mode);
+
+      if(now - lastUiT > 130){
+        lastUiT = now;
+        liveKeyEl.textContent = top.name;
+        liveCorrEl.textContent = top.corr.toFixed(2);
+        var corrPct = Math.max(0, Math.min(100, top.corr*100));
+        corrFillEl.style.width = corrPct+'%';
+        corrFillEl.style.background = top.mode==='major' ? 'var(--accent)' : 'var(--minor)';
+        corrValLabelEl.textContent = 'r '+top.corr.toFixed(2);
+        renderCandidates(ranked.slice(0,3));
+        updateConfidence(ranked);
+        if(stableKeyInfo) updateChordHighlight(chroma);
+      }
+
+      if(now - lastHistoryT > 500){
+        lastHistoryT = now;
+        history.push(top);
+        if(history.length > HISTORY_MAX) history.shift();
+
+        var tick = sparkTicks[sparkTicks.length - history.length];
+        // shift all ticks left visually by re-rendering from history
+        for(var k=0;k<sparkTicks.length;k++){
+          var hIdx = k - (sparkTicks.length - history.length);
+          if(hIdx>=0 && hIdx<history.length){
+            var h = history[hIdx];
+            sparkTicks[k].style.height = (6 + h.corr*10)+'px';
+            sparkTicks[k].style.background = h.mode==='major' ? 'var(--accent)' : 'var(--minor)';
+            sparkTicks[k].style.opacity = (0.4 + 0.6*(hIdx/history.length)).toFixed(2);
+          } else {
+            sparkTicks[k].style.height = '6px';
+            sparkTicks[k].style.background = 'var(--track)';
+            sparkTicks[k].style.opacity = '1';
+          }
+        }
+
+        var stable = modeOfHistory();
+        if(stable){
+          stableKeyEl.textContent = stable.name;
+          stableKeyEl.classList.remove('dim');
+          if(!stableKeyInfo || stableKeyInfo.root!==stable.root || stableKeyInfo.mode!==stable.mode){
+            stableKeyInfo = stable;
+            setChordGridKey(stable.root, stable.mode, stable.name);
+          }
+        }
+      }
+    }
+
+    function resetReading(){
+      chroma = new Array(12).fill(0);
+      history = [];
+      stableKeyEl.textContent = '—';
+      stableKeyEl.classList.add('dim');
+      liveKeyEl.textContent = '—';
+      liveCorrEl.textContent = '0.00';
+      corrFillEl.style.width = '0%';
+      corrValLabelEl.textContent = '0.00';
+      candidatesEl.innerHTML = '';
+      confidenceTagEl.className = 'confidence-tag';
+      confidenceTagEl.textContent = '—';
+      confidenceGapEl.textContent = '';
+      relativeNoteEl.classList.remove('show');
+      relativeNoteEl.innerHTML = '';
+      sparkTicks.forEach(function(el){ el.style.height='6px'; el.style.background='var(--track)'; el.style.opacity='1'; });
+      updateWheel(chroma, -1, null);
+      stableKeyInfo = null;
+      setChordGridKey(0, 'major', '—');
+    }
+
+    async function startListening(){
+      clearError();
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+        });
+      } catch(err){
+        var msg = 'Could not access the microphone.';
+        if(err && err.name==='NotAllowedError'){
+          msg = isEmbedded
+            ? 'Microphone access is blocked in this embedded view, even though it’s allowed in your browser. Copy the link above and paste it into a new browser tab, then press Start listening there.'
+            : 'Microphone access was blocked. Allow it for this page (check the address-bar permission icon), reload the page, and try again.';
+        } else if(err && err.name==='NotFoundError'){
+          msg = 'No microphone was found on this device.';
+        } else if(err && err.name==='NotReadableError'){
+          msg = 'The microphone is in use by another app, or the hardware couldn’t be started.';
+        }
+        showError(msg);
+        setStatus('Idle · mic blocked', false);
+        return;
+      }
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if(audioCtx.state === 'suspended') await audioCtx.resume();
+      source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 16384;
+      analyser.smoothingTimeConstant = 0;
+      freqData = new Float32Array(analyser.frequencyBinCount);
+      timeData = new Float32Array(analyser.fftSize);
+      source.connect(analyser);
+
+      running = true;
+      lastFrameT = 0; lastUiT = 0; lastHistoryT = 0;
+      micBtn.classList.add('listening');
+      micBtn.setAttribute('aria-pressed','true');
+      micBtnLabel.textContent = 'Stop listening';
+      setStatus('Listening…', true);
+      rafId = requestAnimationFrame(frame);
+    }
+
+    function stopListening(){
+      running = false;
+      if(rafId) cancelAnimationFrame(rafId);
+      if(stream) stream.getTracks().forEach(function(tr){ tr.stop(); });
+      if(audioCtx) audioCtx.close();
+      stream = null; audioCtx = null; analyser = null; source = null;
+      micBtn.classList.remove('listening');
+      micBtn.setAttribute('aria-pressed','false');
+      micBtnLabel.textContent = 'Start listening';
+      levelFillEl.style.width = '0%';
+      levelDbEl.textContent = '−∞ dB';
+      setStatus(history.length ? 'Stopped · last reading kept' : 'Idle · no signal', false);
+    }
+
+    micBtn.addEventListener('click', function(){
+      if(running) stopListening(); else startListening();
+    });
+
+    var resetBtnHost = document.querySelector('.live-line');
+    var resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'reset-link';
+    resetBtn.textContent = 'reset reading';
+    resetBtn.style.marginLeft = '10px';
+    resetBtn.addEventListener('click', resetReading);
+    resetBtnHost.appendChild(resetBtn);
+
+    // Always-available speaker test, independent of mic/candidates, so a
+    // "play doesn't work" report can be isolated from the detection flow.
+    var testToneBtn = document.createElement('button');
+    testToneBtn.type = 'button';
+    testToneBtn.className = 'reset-link';
+    testToneBtn.textContent = 'test sound ▶';
+    testToneBtn.style.marginLeft = '10px';
+    testToneBtn.addEventListener('click', function(){ playTonic(0, 'major', testToneBtn); });
+    resetBtnHost.appendChild(testToneBtn);
+
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      showError('This browser does not support microphone capture.');
+      micBtn.disabled = true;
+    }
+
+    if(isEmbedded){
+      embedHint.hidden = false;
+      copyLinkBtn.addEventListener('click', function(){
+        var url = window.location.href;
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(url).then(function(){
+            copyLinkStatus.textContent = 'Copied — paste into a new tab’s address bar.';
+          }, function(){
+            copyLinkStatus.textContent = url;
+          });
+        } else {
+          copyLinkStatus.textContent = url;
+        }
+      });
+    }
+
+    updateWheel(chroma, -1, null);
+    setChordGridKey(0, 'major', '—');
+  })();
+  </script>
+</body>
+</html>
